@@ -1,4 +1,7 @@
 
+import os
+import re
+
 import gradio as gr
 import torch
 from compel import Compel, DiffusersTextualInversionManager
@@ -23,20 +26,50 @@ compel = Compel(tokenizer=pipe.tokenizer,
 
 
 image_history = []
-reloading_loras = False
+
+
+# load filenames frin loras folder
+loras = []
+
+for filename in os.listdir("./loras"):
+    if filename.endswith(".safetensors"):
+        loras.append(filename[:-12])
+        pipe.load_lora_weights(
+            "loras", weight_name=f"{filename[:-12]}.safetensors", adapter_name=filename[:-12])
+
+
+def process_and_extract(prompt):
+    global loras
+
+    matches = re.findall(r'<([^:]+):(\d+(?:\.\d+)?)>', prompt)
+    if not matches:
+        return {}, prompt
+    request_loras = {}
+
+    for name, weight_str in matches:
+        weight = float(weight_str)
+        placeholder = f'<{re.escape(name)}:{re.escape(weight_str)}>'
+        prompt = prompt.replace(placeholder, '')
+        if name not in loras:
+            print(f"unknown lora {name}")
+        request_loras[name] = weight
+
+    return request_loras, prompt
 
 
 def generate_images(prompt, negative_prompt, num_inference_steps, guidance_scale, batch_size, seed):
     global image_history
-    global reloading_loras
 
-    if reloading_loras:
-        return [], image_history
+    b4prompt = prompt
+    request_loras, prompt = process_and_extract(prompt)
+    with torch.no_grad():
+        conditioning = compel.build_conditioning_tensor(prompt)
+        negative_conditioning = compel.build_conditioning_tensor(negative_prompt)
+        [conditioning, negative_conditioning] = compel.pad_conditioning_tensors_to_same_length(
+            [conditioning, negative_conditioning])
 
-    conditioning = compel.build_conditioning_tensor(prompt)
-    negative_conditioning = compel.build_conditioning_tensor(negative_prompt)
-    [conditioning, negative_conditioning] = compel.pad_conditioning_tensors_to_same_length(
-        [conditioning, negative_conditioning])
+    pipe.set_adapters(list(request_loras.keys()), list(request_loras.values()))
+    # pipe.fuse_lora()
 
     if seed == -1:
         gen = None
@@ -55,32 +88,18 @@ def generate_images(prompt, negative_prompt, num_inference_steps, guidance_scale
         output_type="pil"
     ).images
 
-    image_history.extend([(image, "") for image in images])
+    image_history.extend(
+        [(image, f"prompt: {b4prompt} \n seed: {str(seed)}") for image in images])
     images_list.extend([(image, "") for image in images])
+
+    [conditioning, negative_conditioning] = [None, None]
+    # pipe.unfuse_lora()
+    # pipe.set_adapters(adapter_names=[], adapter_weights=[])
 
     return images_list, image_history
 
 
-def load_unload_loras(loras_file, scale):
-    global reloading_loras
-    reloading_loras = True
-    print("reloading loras")
-    pipe.unfuse_lora()
-    if loras_file is not None:
-        pipe.load_lora_weights(loras_file, weight_name="loras.safetensors")
-        pipe.fuse_lora(lora_scale=float(scale))
-    reloading_loras = False
-    print("done reloading weights")
-
-
 with gr.Blocks() as demo:
-    # Title Markdown
-    gr.Markdown(
-        """
-        # testing
-        there's a memory leak somewhere.. restart when slow
-        """)
-
     with gr.Row():
         # Input components
         with gr.Column():
@@ -100,20 +119,11 @@ with gr.Blocks() as demo:
                     seed_input = gr.Number(-1, label="Seed")
                     generate_button = gr.Button(
                         "Generate Images")
-            with gr.Row():
-                with gr.Column():
-                    lora_file_input = gr.File(label="Lora File")
-                    lora_scale_input = gr.Slider(
-                        0, 2, label="Lora Scale", step=0.1)
-                    reload_lora_button = gr.Button("Reload Lora")
 
         with gr.Column():
             generated_images_output = gr.Gallery()
             feedback_output = gr.Gallery()
 
-    reload_lora_button.click(load_unload_loras,
-                             inputs=[lora_file_input, lora_scale_input],
-                             outputs=[])
     generate_button.click(generate_images,
                           inputs=[prompt_input, neg_prompt_input, inference_steps_slider,
                                   guidance_scale_slider, batch_size_input, seed_input],

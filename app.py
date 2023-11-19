@@ -59,7 +59,8 @@ image = (
         "triton",
         "safetensors",
         "torch>=2.0",
-        "compel"
+        "compel",
+        "peft"
     )
     .pip_install("xformers", pre=True)
     .run_function(
@@ -75,6 +76,8 @@ stub = Stub("sd-image-gen", image=image)
 @stub.cls(gpu=gpu.T4(count=1), keep_warm=KEEP_WARM)
 class Model:
     def __enter__(self):
+        import os
+
         import torch
         from compel import Compel, DiffusersTextualInversionManager
         from diffusers import DiffusionPipeline, LCMScheduler
@@ -99,23 +102,27 @@ class Model:
 
         self.pipe.to(device="cuda", dtype=torch.float16)
 
+        for file in os.listdir("loras"):
+            if file.endswith(".safetensors"):
+                self.pipe.load_lora_weights(
+                    "loras", weight_name=f"{file[:-12]}.safetensors", adapter_name=file[:-12])
+
     @method()
-    def inference(self, prompt, n_steps=6, cfg=2, negative_prompt="", loras={}):
+    def inference(self, prompt, n_steps=7, cfg=2, negative_prompt="", loras={}):
+        import torch
 
-        conditioning = self.compel.build_conditioning_tensor(prompt)
+        with torch.no_grad():
+            conditioning = self.compel.build_conditioning_tensor(prompt)
 
-        negative_conditioning = self.compel.build_conditioning_tensor(
-            negative_prompt)
+            negative_conditioning = self.compel.build_conditioning_tensor(
+                negative_prompt)
 
-        [conditioning, negative_conditioning] = self.compel.pad_conditioning_tensors_to_same_length(
-            [conditioning, negative_conditioning])
+            [conditioning, negative_conditioning] = self.compel.pad_conditioning_tensors_to_same_length(
+                [conditioning, negative_conditioning])
 
         if loras:
-            for name in loras:
-                print(f"Applying lora {name} with weight {loras[name]}")
-                self.pipe.load_lora_weights(
-                    "loras", weight_name=f"{name}.safetensors")
-                self.pipe.fuse_lora(lora_scale=float(loras[name]))
+            self.pipe.set_adapters(list(loras.keys()), list(loras.values()))
+            self.pipe.fuse_lora()
 
         image = self.pipe(
             prompt_embeds=conditioning,
@@ -125,21 +132,26 @@ class Model:
         ).images[0]
 
         import io
-
         byte_stream = io.BytesIO()
         image.save(byte_stream, format="PNG")
         image_bytes = byte_stream.getvalue()
-        self.pipe.unfuse_lora()
+        try:
+            return image_bytes
+        finally:
+            self._cleanup()
 
-        return image_bytes
+    def _cleanup(self):
+        self.pipe.unfuse_lora()
+        self.pipe.set_adapters(adapter_names=[], adapter_weights=[])
 
 
 ### Web endpoint ###
 
+
 class InferenceRequest(BaseModel):
     prompt: str
     cfg: Optional[int] = 2
-    n_steps: Optional[int] = 6
+    n_steps: Optional[int] = 7
     negative_prompt: Optional[str] = None
 
 
@@ -194,9 +206,9 @@ async def get_loras_names():
 
 
 @stub.local_entrypoint()
-def main(prompt: str, steps: int = 6, output_path: str = "zlocaloutput.png"):
+def main(prompt: str, steps: int = 7, output_path: str = "zlocaloutput.png"):
     # trigger inference in cli
-    # eg. modal run app.py --prompt "1girl" --steps 8
+    # eg. modal run app.py --prompt "(masterpiece, best quality, highres), 1girl" --steps 8
     image_bytes = Model().inference.remote(
         prompt, n_steps=steps)
     print(f"Saving result to {output_path}")
