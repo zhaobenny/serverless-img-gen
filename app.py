@@ -1,9 +1,8 @@
 import re
-from typing import Optional
 
-from fastapi import Depends, HTTPException, Response
+from fastapi import Depends, FastAPI, HTTPException, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from modal import Image, Secret, Stub, gpu, method, web_endpoint
+from modal import Image, Secret, Stub, asgi_app, gpu, method
 from pydantic import BaseModel
 
 from config import AUTH_TOKEN, EXTRA_URL, KEEP_WARM, MODEL
@@ -147,20 +146,23 @@ class Model:
 
 ### Web endpoint ###
 
-
 class InferenceRequest(BaseModel):
     prompt: str
-    cfg: Optional[int] = 2
-    n_steps: Optional[int] = 7
-    negative_prompt: Optional[str] = None
+    negative_prompt: str = ""
+    cfg: int = 2
+    n_steps: int = 7
+
+
+class LoraResponse(BaseModel):
+    loras: list[str] = []
 
 
 auth_scheme = HTTPBearer()
+web_app = FastAPI()
 
 
-@stub.function(secret=Secret.from_dict(AUTH_TOKEN))
-@web_endpoint(method="POST", label=f"{EXTRA_URL}-imggen")
-async def predict(body: InferenceRequest, token: HTTPAuthorizationCredentials = Depends(auth_scheme)):
+@web_app.post("/")
+async def predict(body: InferenceRequest, token: HTTPAuthorizationCredentials = Depends(auth_scheme)) -> Response:
     import os
     if token.credentials != os.environ["AUTH_TOKEN"]:
         raise HTTPException(
@@ -175,6 +177,17 @@ async def predict(body: InferenceRequest, token: HTTPAuthorizationCredentials = 
                                            negative_prompt=body.negative_prompt, loras=loras)
 
     return Response(content=image_bytes, media_type="image/png")
+
+
+@web_app.get(path="/loras")
+async def get_available_loras() -> LoraResponse:
+    return {"loras": await get_loras_names()}
+
+
+@stub.function(secret=Secret.from_dict(AUTH_TOKEN))
+@asgi_app(label=f"{EXTRA_URL}-imggen")
+def fastapi_app():
+    return web_app
 
 
 async def process_and_extract(prompt):
