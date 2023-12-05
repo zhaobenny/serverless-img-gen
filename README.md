@@ -23,6 +23,13 @@ LoRA syntax is `<Misato:0.4>` in the prompt where `Misato` is the filename of th
 
 The [Misato LyCORIS](https://civitai.com/models/161112/misato-katsuragi-neon-genesis-evangelion) is also included by default for demo purposes.
 
+## LoRAs
+
+Place your (diffusers/diffusion model compatible) LoRAs in the `loras` folder, and they will be automatically uploaded to modal.com on deployment.
+
+Check available LoRAs on a deployment at `<URL>/loras`
+
+
 ## Credits
  - [LCM](https://latent-consistency-models.github.io/)
  - [Disty0/LCM_SoteMix](https://huggingface.co/Disty0/LCM_SoteMix)

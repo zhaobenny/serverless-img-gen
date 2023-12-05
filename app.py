@@ -1,5 +1,7 @@
+import os
 import re
 
+import modal
 from fastapi import Depends, FastAPI, HTTPException, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from modal import Image, Secret, Stub, asgi_app, gpu, method
@@ -7,17 +9,14 @@ from pydantic import BaseModel
 
 from config import AUTH_TOKEN, EXTRA_URL, KEEP_WARM, MODEL
 
-### Setup ###
+### Modal setup ###
 
 
 def download_models():
     import requests
-    from diffusers import DiffusionPipeline, LCMScheduler
+    from diffusers import DiffusionPipeline
 
-    pipe = DiffusionPipeline.from_pretrained(
-        MODEL, variant="fp16",  safety_checker=None)
-
-    pipe.scheduler = LCMScheduler.from_config(pipe.scheduler.config)
+    _ = DiffusionPipeline.from_pretrained(MODEL, variant="fp16", safety_checker=None)  # cache model
 
     import os
     os.makedirs("loras", exist_ok=True)
@@ -79,18 +78,15 @@ class Model:
 
         import torch
         from compel import Compel, DiffusersTextualInversionManager
-        from diffusers import DiffusionPipeline, LCMScheduler
+        from diffusers import DiffusionPipeline
 
         torch.backends.cuda.matmul.allow_tf32 = True
 
         self.pipe = DiffusionPipeline.from_pretrained(
             MODEL, variant="fp16", safety_checker=None)
 
-        self.pipe.scheduler = LCMScheduler.from_config(
-            self.pipe.scheduler.config)
-
-        self.pipe.load_textual_inversion(
-            "./loras/FastNegativeV2.pt", "FastNegativeV2")
+        if (os.path.exists("loras/FastNegativeV2.pt")):
+            self.pipe.load_textual_inversion("./loras/FastNegativeV2.pt", "FastNegativeV2")
 
         textual_inversion_manager = DiffusersTextualInversionManager(self.pipe)
 
@@ -113,8 +109,7 @@ class Model:
         with torch.no_grad():
             conditioning = self.compel.build_conditioning_tensor(prompt)
 
-            negative_conditioning = self.compel.build_conditioning_tensor(
-                negative_prompt)
+            negative_conditioning = self.compel.build_conditioning_tensor(negative_prompt)
 
             [conditioning, negative_conditioning] = self.compel.pad_conditioning_tensors_to_same_length(
                 [conditioning, negative_conditioning])
@@ -159,10 +154,17 @@ class LoraResponse(BaseModel):
 
 auth_scheme = HTTPBearer()
 web_app = FastAPI()
+loras_names = []
+
+if not (modal.is_local()):
+    for file in os.listdir("loras"):
+        if file.endswith(".safetensors"):
+            loras_names.append(file[:-12])
+    loras_names = set(loras_names)
 
 
-@web_app.post("/")
-async def predict(body: InferenceRequest, token: HTTPAuthorizationCredentials = Depends(auth_scheme)) -> Response:
+@web_app.post("/", responses={200: {"content": {"image/png": {}}}}, response_class=Response)
+async def predict(body: InferenceRequest, token: HTTPAuthorizationCredentials = Depends(auth_scheme)):
     import os
     if token.credentials != os.environ["AUTH_TOKEN"]:
         raise HTTPException(
@@ -174,20 +176,14 @@ async def predict(body: InferenceRequest, token: HTTPAuthorizationCredentials = 
     loras, prompt = await process_and_extract(body.prompt)
 
     image_bytes = Model().inference.remote(prompt, n_steps=body.n_steps, cfg=body.cfg,
-                                           negative_prompt=body.negative_prompt, loras=loras)
+                                                  negative_prompt=body.negative_prompt, loras=loras)
 
     return Response(content=image_bytes, media_type="image/png")
 
 
-@web_app.get(path="/loras")
-async def get_available_loras() -> LoraResponse:
-    return {"loras": await get_loras_names()}
-
-
-@stub.function(secret=Secret.from_dict(AUTH_TOKEN))
-@asgi_app(label=f"{EXTRA_URL}-imggen")
-def fastapi_app():
-    return web_app
+@web_app.get(path="/loras", response_model=LoraResponse)
+async def get_available_loras():
+    return LoraResponse(loras=list(loras_names))
 
 
 async def process_and_extract(prompt):
@@ -195,7 +191,6 @@ async def process_and_extract(prompt):
     if not matches:
         return {}, prompt
     request_loras = {}
-    loras_names = await get_loras_names()
 
     for name, weight_str in matches:
         weight = float(weight_str)
@@ -209,13 +204,10 @@ async def process_and_extract(prompt):
     return request_loras, prompt
 
 
-async def get_loras_names():
-    import os
-    loras_names = []
-    for file in os.listdir("loras"):
-        if file.endswith(".safetensors"):
-            loras_names.append(file[:-12])
-    return set(loras_names)
+@stub.function(secret=Secret.from_dict(AUTH_TOKEN))
+@asgi_app(label=f"{EXTRA_URL}-imggen")
+def fastapi_app():
+    return web_app
 
 
 @stub.local_entrypoint()

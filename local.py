@@ -5,7 +5,7 @@ import re
 import gradio as gr
 import torch
 from compel import Compel, DiffusersTextualInversionManager
-from diffusers import DiffusionPipeline, LCMScheduler
+from diffusers import DiffusionPipeline
 
 """
     Hacked together Gradio for testing models and LoRAs locally with similar process to the modal one
@@ -16,7 +16,6 @@ model_id = "Disty0/LCM_SoteMix"
 
 pipe = DiffusionPipeline.from_pretrained(
     model_id, variant="fp16", safety_checker=None, use_safetensors=True)
-pipe.scheduler = LCMScheduler.from_config(pipe.scheduler.config)
 pipe.load_textual_inversion("./loras/FastNegativeV2.pt", "FastNegativeV2")
 textual_inversion_manager = DiffusersTextualInversionManager(pipe)
 pipe.to(device="cuda", dtype=torch.float16)
