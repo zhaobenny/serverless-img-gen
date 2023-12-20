@@ -103,7 +103,7 @@ class Model:
                     "loras", weight_name=f"{file[:-12]}.safetensors", adapter_name=file[:-12])
 
     @method()
-    def inference(self, prompt, n_steps=7, cfg=2, negative_prompt="", loras={}):
+    def inference(self, prompt, n_steps=7, cfg=2, negative_prompt="", loras={}, height=512, width=512):
         import torch
 
         with torch.no_grad():
@@ -123,6 +123,8 @@ class Model:
             negative_prompt_embeds=negative_conditioning,
             num_inference_steps=n_steps,
             guidance_scale=cfg,
+            height=height,
+            width=width
         ).images[0]
 
         import io
@@ -146,6 +148,8 @@ class InferenceRequest(BaseModel):
     negative_prompt: str = ""
     cfg: int = 2
     n_steps: int = 7
+    height: int = 512
+    width: int = 512
 
 
 class LoraResponse(BaseModel):
@@ -176,7 +180,7 @@ async def predict(body: InferenceRequest, token: HTTPAuthorizationCredentials = 
     loras, prompt = await process_and_extract(body.prompt)
 
     image_bytes = Model().inference.remote(prompt, n_steps=body.n_steps, cfg=body.cfg,
-                                                  negative_prompt=body.negative_prompt, loras=loras)
+                                           negative_prompt=body.negative_prompt, loras=loras, height=body.height, width=body.width)
 
     return Response(content=image_bytes, media_type="image/png")
 
