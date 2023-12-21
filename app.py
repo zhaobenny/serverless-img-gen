@@ -7,7 +7,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from modal import Image, Secret, Stub, asgi_app, gpu, method
 from pydantic import BaseModel
 
-from config import AUTH_TOKEN, EXTRA_URL, KEEP_WARM, MODEL
+from config import AUTH_TOKEN, EXTRA_URL, KEEP_WARM, MODEL, NO_DEMO
 
 ### Modal setup ###
 
@@ -21,14 +21,14 @@ def download_models():
     import os
     os.makedirs("loras", exist_ok=True)
 
-    if not os.path.exists("loras/FastNegativeV2.pt"):
-        # hardcode a single negative embedding
+    if not os.path.exists("loras/FastNegativeV2.pt") and not NO_DEMO:
+        # hardcode a negative embedding for demo purposes
         r = requests.get(
             "https://civitai.com/api/download/models/94057?type=Model&format=PickleTensor")
         with open(f"loras/FastNegativeV2.pt", "wb") as f:
             f.write(r.content)
 
-    if not os.path.exists("loras/Misato.safetensors"):
+    if not os.path.exists("loras/Misato.safetensors") and not NO_DEMO:
         # hardcode a single LoRA for demo purposes
         r = requests.get(
             "https://civitai.com/api/download/models/181315?type=Model&format=PickleTensor")
@@ -41,7 +41,7 @@ def download_models():
         if file.endswith(".safetensors"):
             print(f"- {file[:-12]}")
 
-    print("\nImported the following:")
+    print("\nImported the following embeddings:")
     for file in os.listdir("loras"):
         if file.endswith(".pt"):
             print(f"- {file[:-3]}")
