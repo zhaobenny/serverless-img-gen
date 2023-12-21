@@ -4,8 +4,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-### LoRAs ###
-# Add diffusers compatible LoRAs to the "loras" folder
+### LoRAs / embeddings ###
+# Add diffusers compatible LoRAs / embeddings to the "loras" folder
 
 # Generate your own token
 AUTH_TOKEN = {"AUTH_TOKEN": os.getenv("AUTH_TOKEN") or "a-good-auth-token"}
@@ -21,4 +21,3 @@ MODEL = "Disty0/LCM_SoteMix"
 
 # Skips downloading demo LoRA/embedding (for compatibility with non SD 1.5 models)
 NO_DEMO = False
-

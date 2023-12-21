@@ -16,7 +16,7 @@ def download_models():
     import requests
     from diffusers import DiffusionPipeline
 
-    _ = DiffusionPipeline.from_pretrained(MODEL, variant="fp16", safety_checker=None)  # cache model
+    pipe = DiffusionPipeline.from_pretrained(MODEL, variant="fp16")  # cache model
 
     import os
     os.makedirs("loras", exist_ok=True)
@@ -35,12 +35,27 @@ def download_models():
         with open(f"loras/Misato.safetensors", "wb") as f:
             f.write(r.content)
 
-    print("###############")
-    print("Imported the following LoRAs:")
+    print("\n###############")
+    print("\nImported the following LoRAs:")
     for file in os.listdir("loras"):
         if file.endswith(".safetensors"):
             print(f"- {file[:-12]}")
-    print("###############")
+
+    print("\nImported the following:")
+    for file in os.listdir("loras"):
+        if file.endswith(".pt"):
+            print(f"- {file[:-3]}")
+
+    print("\nAttempting test load of imported weights:\n")
+    for file in os.listdir("loras"):
+        if file.endswith(".safetensors"):
+            print(f"Loading LoRA {file[:-12]}")
+            pipe.load_lora_weights(
+                "loras", weight_name=f"{file[:-12]}.safetensors", adapter_name=file[:-12])
+        if file.endswith(".pt"):
+            print(f"Loading embedding {file[:-3]}")
+            pipe.load_textual_inversion(f"./loras/{file}", file[:-3])
+    print("\n###############")
 
 
 image = (
@@ -51,14 +66,13 @@ image = (
         "accelerate",
         "diffusers[torch]~=0.23.0",
         "ftfy",
-        "torch",
         "torchvision",
         "transformers~=4.35.0",
         "triton",
         "safetensors",
         "torch>=2.0",
         "compel",
-        "peft"
+        "peft~=0.6.2"
     )
     .pip_install("xformers", pre=True)
     .run_function(
@@ -85,9 +99,6 @@ class Model:
         self.pipe = DiffusionPipeline.from_pretrained(
             MODEL, variant="fp16", safety_checker=None)
 
-        if (os.path.exists("loras/FastNegativeV2.pt")):
-            self.pipe.load_textual_inversion("./loras/FastNegativeV2.pt", "FastNegativeV2")
-
         textual_inversion_manager = DiffusersTextualInversionManager(self.pipe)
 
         self.compel = Compel(tokenizer=self.pipe.tokenizer,
@@ -99,8 +110,9 @@ class Model:
 
         for file in os.listdir("loras"):
             if file.endswith(".safetensors"):
-                self.pipe.load_lora_weights(
-                    "loras", weight_name=f"{file[:-12]}.safetensors", adapter_name=file[:-12])
+                self.pipe.load_lora_weights("loras", weight_name=f"{file[:-12]}.safetensors", adapter_name=file[:-12])
+            if file.endswith(".pt"):
+                self.pipe.load_textual_inversion(f"./loras/{file}", file[:-3])
 
     @method()
     def inference(self, prompt, n_steps=7, cfg=2, negative_prompt="", loras={}, height=512, width=512):
@@ -152,18 +164,25 @@ class InferenceRequest(BaseModel):
     width: int = 512
 
 
-class LoraResponse(BaseModel):
+class LorasResponse(BaseModel):
     loras: list[str] = []
+
+
+class EmbeddingsResponse(BaseModel):
+    embeddings: list[str] = []
 
 
 auth_scheme = HTTPBearer()
 web_app = FastAPI()
 loras_names = []
+embeddings_names = []
 
 if not (modal.is_local()):
     for file in os.listdir("loras"):
         if file.endswith(".safetensors"):
             loras_names.append(file[:-12])
+        if file.endswith(".pt"):
+            embeddings_names.append(file[:-3])
     loras_names = set(loras_names)
 
 
@@ -185,9 +204,14 @@ async def predict(body: InferenceRequest, token: HTTPAuthorizationCredentials = 
     return Response(content=image_bytes, media_type="image/png")
 
 
-@web_app.get(path="/loras", response_model=LoraResponse)
+@web_app.get(path="/loras", response_model=LorasResponse)
 async def get_available_loras():
-    return LoraResponse(loras=list(loras_names))
+    return LorasResponse(loras=list(loras_names))
+
+
+@web_app.get(path="/embeddings", response_model=EmbeddingsResponse)
+async def get_available_embeddings():
+    return EmbeddingsResponse(embeddings=embeddings_names)
 
 
 async def process_and_extract(prompt):

@@ -19,15 +19,16 @@ Prompt uses Compel syntax, see their [docs](https://github.com/damian0815/compel
 
 LoRA syntax is `<Misato:0.4>` in the prompt where `Misato` is the filename of the LoRA in `loras` folder, and an suitable weight after the colon.
 
-[FastNegativeV2](https://civitai.com/models/71961/fast-negative-embedding-fastnegativev2) embedding is available for negative prompts by default.
+[FastNegativeV2](https://civitai.com/models/71961/fast-negative-embedding-fastnegativev2) is included by default for demo purposes.
 
 The [Misato LyCORIS](https://civitai.com/models/161112/misato-katsuragi-neon-genesis-evangelion) is also included by default for demo purposes.
 
 ## LoRAs
 
-Place your (diffusers/diffusion model compatible) LoRAs in the `loras` folder, and they will be automatically uploaded to modal.com on deployment.
+Place your (diffusers/diffusion model compatible) LoRAs / embeddings in the `loras` folder, and they will be automatically uploaded to modal.com on deployment.
+(make sure your embeddings are `.pt` and loras are `.safetensors`)
 
-Check available LoRAs on a deployment at `<URL>/loras`
+Check available concepts on a deployment at `<URL>/loras` and `<URL>/embeddings`
 
 
 ## Credits
