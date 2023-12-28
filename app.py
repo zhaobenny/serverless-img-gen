@@ -16,19 +16,25 @@ def download_models():
     import requests
     from diffusers import DiffusionPipeline
 
-    pipe = DiffusionPipeline.from_pretrained(MODEL, variant="fp16")  # cache model
+    pipe = DiffusionPipeline.from_pretrained(
+        MODEL,
+        variant="fp16",
+        feature_extractor=None,
+        safety_checker=None,
+        requires_safety_checker=False
+    )
 
     import os
     os.makedirs("loras", exist_ok=True)
 
-    if not os.path.exists("loras/FastNegativeV2.pt") and not NO_DEMO:
+    if not NO_DEMO and not os.path.exists("loras/FastNegativeV2.pt"):
         # hardcode a negative embedding for demo purposes
         r = requests.get(
             "https://civitai.com/api/download/models/94057?type=Model&format=PickleTensor")
         with open(f"loras/FastNegativeV2.pt", "wb") as f:
             f.write(r.content)
 
-    if not os.path.exists("loras/Misato.safetensors") and not NO_DEMO:
+    if not NO_DEMO and not os.path.exists("loras/Misato.safetensors"):
         # hardcode a single LoRA for demo purposes
         r = requests.get(
             "https://civitai.com/api/download/models/181315?type=Model&format=PickleTensor")
@@ -60,21 +66,24 @@ def download_models():
 
 image = (
     Image.debian_slim(python_version="3.10")
-    .copy_local_dir(local_path="loras/", remote_path="/root/loras")
     .pip_install(
         "python-dotenv",
+        "ftfy"
+    )
+    .pip_install(
         "accelerate",
-        "diffusers[torch]~=0.23.0",
-        "ftfy",
+        "diffusers[torch]~=0.24.0",
         "torchvision",
-        "transformers~=4.35.0",
+        "transformers~=4.36.0",
         "triton",
         "safetensors",
         "torch>=2.0",
-        "compel",
-        "peft~=0.6.2"
+        "compel~=2.0.0",
+        "peft~=0.7.0",
+        "xformers",
+    ).copy_local_dir(
+        local_path="loras/", remote_path="/root/loras"
     )
-    .pip_install("xformers", pre=True)
     .run_function(
         download_models
     )
@@ -87,6 +96,8 @@ stub = Stub("sd-image-gen", image=image)
 
 @stub.cls(gpu=gpu.T4(count=1), keep_warm=KEEP_WARM)
 class Model:
+    import torch
+
     def __enter__(self):
         import os
 
@@ -97,7 +108,11 @@ class Model:
         torch.backends.cuda.matmul.allow_tf32 = True
 
         self.pipe = DiffusionPipeline.from_pretrained(
-            MODEL, variant="fp16", safety_checker=None)
+            MODEL,
+            variant="fp16",
+            safety_checker=None,
+            requires_safety_checker=False,
+        )
 
         textual_inversion_manager = DiffusersTextualInversionManager(self.pipe)
 
@@ -115,16 +130,14 @@ class Model:
                 self.pipe.load_textual_inversion(f"./loras/{file}", file[:-3])
 
     @method()
+    @torch.inference_mode()
     def inference(self, prompt, n_steps=7, cfg=2, negative_prompt="", loras={}, height=512, width=512):
-        import torch
+        conditioning = self.compel.build_conditioning_tensor(prompt)
 
-        with torch.no_grad():
-            conditioning = self.compel.build_conditioning_tensor(prompt)
+        negative_conditioning = self.compel.build_conditioning_tensor(negative_prompt)
 
-            negative_conditioning = self.compel.build_conditioning_tensor(negative_prompt)
-
-            [conditioning, negative_conditioning] = self.compel.pad_conditioning_tensors_to_same_length(
-                [conditioning, negative_conditioning])
+        [conditioning, negative_conditioning] = self.compel.pad_conditioning_tensors_to_same_length(
+            [conditioning, negative_conditioning])
 
         if loras:
             self.pipe.set_adapters(list(loras.keys()), list(loras.values()))
@@ -140,15 +153,17 @@ class Model:
         ).images[0]
 
         import io
-        byte_stream = io.BytesIO()
-        image.save(byte_stream, format="PNG")
-        image_bytes = byte_stream.getvalue()
-        try:
-            return image_bytes
-        finally:
-            self._cleanup()
+        with io.BytesIO() as buf:
+            image.save(buf, format="PNG")
+            img_bytes = buf.getvalue()
+            try:
+                return img_bytes
+            finally:
+                self._cleanup(loras)
 
-    def _cleanup(self):
+    def _cleanup(self, loras):
+        if not loras:
+            return
         self.pipe.unfuse_lora()
         self.pipe.set_adapters(adapter_names=[], adapter_weights=[])
 

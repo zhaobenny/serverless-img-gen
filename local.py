@@ -27,14 +27,18 @@ compel = Compel(tokenizer=pipe.tokenizer,
 image_history = []
 
 
-# load filenames frin loras folder
+# load filenames from loras folder
 loras = []
 
 for filename in os.listdir("./loras"):
     if filename.endswith(".safetensors"):
+        print(f"Loading LoRA {filename[:-12]}")
         loras.append(filename[:-12])
         pipe.load_lora_weights(
             "loras", weight_name=f"{filename[:-12]}.safetensors", adapter_name=filename[:-12])
+    if filename.endswith(".pt"):
+        print(f"Loading embedding {filename[:-3]}")
+        pipe.load_textual_inversion(f"./loras/{filename}", filename[:-3])
 
 
 def process_and_extract(prompt):
