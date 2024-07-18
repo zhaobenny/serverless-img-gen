@@ -4,7 +4,7 @@ import re
 import modal
 from fastapi import Depends, FastAPI, HTTPException, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from modal import Image, Secret, Stub, asgi_app, gpu, method
+from modal import App, Image, Secret, asgi_app, enter, gpu, method
 from pydantic import BaseModel
 
 from config import AUTH_TOKEN, EXTRA_URL, KEEP_WARM, MODEL, NO_DEMO
@@ -89,16 +89,16 @@ image = (
     )
 )
 
-stub = Stub("sd-image-gen", image=image)
+app = App("sd-image-gen", image=image)
 
 ### Inference ###
 
 
-@stub.cls(gpu=gpu.T4(count=1), keep_warm=KEEP_WARM)
+@app.cls(gpu=gpu.T4(count=1), keep_warm=KEEP_WARM)
 class Model:
-    import torch
 
-    def __enter__(self):
+    @enter()
+    def startup(self):
         import os
 
         import torch
@@ -130,36 +130,37 @@ class Model:
                 self.pipe.load_textual_inversion(f"./loras/{file}", file[:-3])
 
     @method()
-    @torch.inference_mode()
     def inference(self, prompt, n_steps=7, cfg=2, negative_prompt="", loras={}, height=512, width=512):
-        conditioning = self.compel.build_conditioning_tensor(prompt)
+        import torch
+        with torch.inference_mode():
+            conditioning = self.compel.build_conditioning_tensor(prompt)
 
-        negative_conditioning = self.compel.build_conditioning_tensor(negative_prompt)
+            negative_conditioning = self.compel.build_conditioning_tensor(negative_prompt)
 
-        [conditioning, negative_conditioning] = self.compel.pad_conditioning_tensors_to_same_length(
-            [conditioning, negative_conditioning])
+            [conditioning, negative_conditioning] = self.compel.pad_conditioning_tensors_to_same_length(
+                [conditioning, negative_conditioning])
 
-        if loras:
-            self.pipe.set_adapters(list(loras.keys()), list(loras.values()))
-            self.pipe.fuse_lora()
+            if loras:
+                self.pipe.set_adapters(list(loras.keys()), list(loras.values()))
+                self.pipe.fuse_lora()
 
-        image = self.pipe(
-            prompt_embeds=conditioning,
-            negative_prompt_embeds=negative_conditioning,
-            num_inference_steps=n_steps,
-            guidance_scale=cfg,
-            height=height,
-            width=width
-        ).images[0]
+            image = self.pipe(
+                prompt_embeds=conditioning,
+                negative_prompt_embeds=negative_conditioning,
+                num_inference_steps=n_steps,
+                guidance_scale=cfg,
+                height=height,
+                width=width
+            ).images[0]
 
-        import io
-        with io.BytesIO() as buf:
-            image.save(buf, format="PNG")
-            img_bytes = buf.getvalue()
-            try:
-                return img_bytes
-            finally:
-                self._cleanup(loras)
+            import io
+            with io.BytesIO() as buf:
+                image.save(buf, format="PNG")
+                img_bytes = buf.getvalue()
+                try:
+                    return img_bytes
+                finally:
+                    self._cleanup(loras)
 
     def _cleanup(self, loras):
         if not loras:
@@ -247,13 +248,13 @@ async def process_and_extract(prompt):
     return request_loras, prompt
 
 
-@stub.function(secret=Secret.from_dict(AUTH_TOKEN))
+@app.function(secrets=[Secret.from_dict(AUTH_TOKEN)])
 @asgi_app(label=f"{EXTRA_URL}-imggen")
 def fastapi_app():
     return web_app
 
 
-@stub.local_entrypoint()
+@app.local_entrypoint()
 def main(prompt: str, steps: int = 7, output_path: str = "zlocaloutput.png"):
     # trigger inference in cli
     # eg. modal run app.py --prompt "(masterpiece, best quality, highres), 1girl" --steps 8
