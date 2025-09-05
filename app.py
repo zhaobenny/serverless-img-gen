@@ -4,7 +4,7 @@ import re
 import modal
 from fastapi import Depends, FastAPI, HTTPException, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from modal import App, Image, Secret, asgi_app, enter, gpu, method
+from modal import App, Image, Secret, asgi_app, enter, method
 from pydantic import BaseModel
 
 from config import AUTH_TOKEN, EXTRA_URL, KEEP_WARM, MODEL, NO_DEMO
@@ -68,22 +68,26 @@ image = (
     Image.debian_slim(python_version="3.10")
     .pip_install(
         "python-dotenv",
-        "ftfy"
+        "ftfy",
+        "requests"
     )
     .pip_install(
         "accelerate",
         "diffusers[torch]~=0.24.0",
         "torchvision",
         "transformers~=4.36.0",
+        "huggingface-hub>=0.19.4,<0.26.0",
         "triton",
         "safetensors",
         "torch>=2.0",
         "compel~=2.0.0",
         "peft~=0.7.0",
         "xformers",
-    ).copy_local_dir(
-        local_path="loras/", remote_path="/root/loras"
+    ).add_local_dir(
+        local_path="loras/", remote_path="/root/loras", copy=True
     )
+    .add_local_file(local_path="app.py", remote_path="/root/app.py", copy=True)
+    .add_local_file(local_path="config.py", remote_path="/root/config.py", copy=True)
     .run_function(
         download_models
     )
@@ -94,7 +98,7 @@ app = App("sd-image-gen", image=image)
 ### Inference ###
 
 
-@app.cls(gpu=gpu.T4(count=1), keep_warm=KEEP_WARM)
+@app.cls(gpu="T4", scaledown_window=KEEP_WARM)
 class Model:
 
     @enter()
