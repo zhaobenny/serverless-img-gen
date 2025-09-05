@@ -85,8 +85,8 @@ image = (
     ).add_local_dir(
         local_path="loras/", remote_path="/root/loras", copy=True
     )
-    .add_local_file(local_path="app.py", remote_path="/root/app.py")
-    .add_local_file(local_path="config.py", remote_path="/root/config.py")
+    .add_local_file(local_path="app.py", remote_path="/root/app.py", copy=True)
+    .add_local_file(local_path="config.py", remote_path="/root/config.py", copy=True)
     .run_function(
         download_models
     )
