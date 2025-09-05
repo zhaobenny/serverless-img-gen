@@ -82,7 +82,7 @@ image = (
         "peft~=0.7.0",
         "xformers",
     ).add_local_dir(
-        local_path="loras/", remote_path="/root/loras"
+        local_path="loras/", remote_path="/root/loras", copy=True
     )
     .run_function(
         download_models
