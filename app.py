@@ -98,7 +98,7 @@ app = App("sd-image-gen", image=image)
 ### Inference ###
 
 
-@app.cls(gpu="T4", min_containers=KEEP_WARM)
+@app.cls(gpu="T4", scaledown_window=KEEP_WARM)
 class Model:
 
     @enter()

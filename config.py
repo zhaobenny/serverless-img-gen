@@ -13,8 +13,8 @@ AUTH_TOKEN = {"AUTH_TOKEN": os.getenv("AUTH_TOKEN") or "a-good-auth-token"}
 # Put your own url friendly string here
 EXTRA_URL = os.getenv("EXTRA_URL") or "great-potato-microwave"
 
-# Keep GPU alive for int n seconds after request or disable with None
-KEEP_WARM = None
+# Keep GPU alive for int n seconds after request (lowest is 2)
+KEEP_WARM = 2
 
 # Diffusion model id (from huggingface.co/models)
 MODEL = "Disty0/LCM_SoteMix"
