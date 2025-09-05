@@ -68,7 +68,8 @@ image = (
     Image.debian_slim(python_version="3.10")
     .pip_install(
         "python-dotenv",
-        "ftfy"
+        "ftfy",
+        "requests"
     )
     .pip_install(
         "accelerate",
