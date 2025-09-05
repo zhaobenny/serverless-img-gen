@@ -4,7 +4,7 @@ import re
 import modal
 from fastapi import Depends, FastAPI, HTTPException, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from modal import App, Image, Secret, asgi_app, enter, gpu, method
+from modal import App, Image, Secret, asgi_app, enter, method
 from pydantic import BaseModel
 
 from config import AUTH_TOKEN, EXTRA_URL, KEEP_WARM, MODEL, NO_DEMO
@@ -81,7 +81,7 @@ image = (
         "compel~=2.0.0",
         "peft~=0.7.0",
         "xformers",
-    ).copy_local_dir(
+    ).add_local_dir(
         local_path="loras/", remote_path="/root/loras"
     )
     .run_function(
@@ -94,7 +94,7 @@ app = App("sd-image-gen", image=image)
 ### Inference ###
 
 
-@app.cls(gpu=gpu.T4(count=1), keep_warm=KEEP_WARM)
+@app.cls(gpu="T4", min_containers=KEEP_WARM)
 class Model:
 
     @enter()
