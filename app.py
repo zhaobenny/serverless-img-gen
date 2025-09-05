@@ -76,6 +76,7 @@ image = (
         "diffusers[torch]~=0.24.0",
         "torchvision",
         "transformers~=4.36.0",
+        "huggingface-hub>=0.19.4,<0.26.0",
         "triton",
         "safetensors",
         "torch>=2.0",
