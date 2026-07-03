@@ -1,0 +1,14 @@
+accelerate~=1.11.0
+compel~=2.3.0
+diffusers[torch]~=0.35.0
+fastapi~=0.123.0
+ftfy~=6.3.0
+huggingface-hub~=0.36.0
+peft~=0.18.0
+python-dotenv~=1.2.0
+requests~=2.32.0
+safetensors~=0.7.0
+torch==2.10.0
+torchvision==0.25.0
+transformers~=4.57.0
+xformers==0.0.35

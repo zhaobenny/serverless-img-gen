@@ -7,7 +7,7 @@ uses modal.com to generate images in ~2s from POST request (cold start not inclu
 ## 🛠️ Usage
 ```
 git clone https://github.com/zhaobenny/serverless-img-gen.git && cd serverless-img-gen
-pip install modal python-dotenv
+python -m pip install -r requirements-dev.txt
 modal token new
 modal deploy app.py
 curl -X POST -H "Content-Type: application/json" -H "Authorization: Bearer a-good-auth-token" -d '{"prompt":"<Misato:0.4>, (masterpiece, best quality, highres), selfie, misato katsuragi, long hair, (brown eyes), blue hair, (purple hair), solo, white shirt", "negative_prompt":"FastNegativeV2"}' <URL> -o output.png
